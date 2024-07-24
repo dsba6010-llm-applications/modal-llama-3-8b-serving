@@ -23,13 +23,13 @@ You should receive a `Web authentication finished successfully!` message.
 
 # Serving the LLaMa3-8b-instruct
 
-You will need to set a Bearer token to authenticate as a [Modal Secret](https://modal.com/docs/guide/secrets).
+You will need to set a Bearer token (as an OPEN AI API) to authenticate as a [Modal Secret](https://modal.com/docs/guide/secrets).
 
-The code currently assumes there will be a key `DSBA_LLAMA3_KEY` with a secret value (will be provided in class or you must set if you run on your own). 
+You will need to name the key `DSBA_LLAMA3_KEY` with a secret value. If you're running on your own, you will need an `.env` file with `DBSA_LLAMA3_KEY=<your secret value>`. In Modal, name the key `dsba-llama3-key`. 
 
 
 ```bash
-modal deploy api.py
+modal deploy src/api.py
 ```
 
 This will then provide you a URL endpoint: <https://your-workspace-name--vllm-openai-compatible-serve.modal.run>
@@ -59,4 +59,6 @@ In the moon's silver shine,
 Together they dined, a messy entwine.
 ```
 
-Alternatively, you may use [this GitHub Gist](https://gist.github.com/wesslen/16ff599634e8b1ed0ed7671ce7820f3f) after setting up the API key and `BASE_URL`.
+# Run inference in Colab
+
+Alternatively, you may use [the repo's Jupyter notebook](/notebooks/dsba6010_openai_api_prompting_with_modal.ipynb), open in Colab, setting up the API key and `BASE_URL` via Colab, then run.
