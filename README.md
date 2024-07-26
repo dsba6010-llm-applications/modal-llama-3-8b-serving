@@ -21,7 +21,10 @@ A browser window will open and you should select your Modal account.
 
 You should receive a `Web authentication finished successfully!` message.
 
-# Serving the LLaMa3-8b-instruct
+# Serving the LLaMa3.1-8b-instruct
+
+> [!WARNING]  
+> To run this, you need to read and agree to the [LLaMa 3.1 terms](https://huggingface.co/meta-llama/Meta-Llama-3.1-8B-Instruct). Make sure your request has been approved or else you will get an error (`You must be authenticated to access it.`) deploying the app. Use Modal to register the `HF_TOKEN` to the name `llama-huggingface-secret`.
 
 You will need to set a Bearer token (as an OPEN AI API) to authenticate as a [Modal Secret](https://modal.com/docs/guide/secrets).
 

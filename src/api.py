@@ -26,8 +26,9 @@ import os
 
 vllm_image = modal.Image.debian_slim(python_version="3.10").pip_install(
     [
-        "vllm==0.4.1",  # LLM serving
-        "huggingface_hub==0.22.2",  # download models from the Hugging Face Hub
+        "vllm==0.5.3.post1",  # LLM serving
+        "transformers==4.43.1", # transformers
+        "huggingface_hub==0.24.2",  # download models from the Hugging Face Hub
         "hf-transfer==0.1.6",  # download models faster
     ]
 )
@@ -41,8 +42,8 @@ vllm_image = modal.Image.debian_slim(python_version="3.10").pip_install(
 # the `HF_TOKEN` environment variable must be set and provided as a [Modal Secret](https://modal.com/secrets).
 
 
-MODEL_NAME = "NousResearch/Meta-Llama-3-8B-Instruct"
-MODEL_REVISION = "b1532e4dee724d9ba63fe17496f298254d87ca64"
+MODEL_NAME = "NousResearch/Meta-Llama-3.1-8B-Instruct"
+MODEL_REVISION = "d10aef7999a2b5ba950ab3974312feeedbfe0b77"
 MODEL_DIR = f"/models/{MODEL_NAME}"
 
 
@@ -58,6 +59,7 @@ def download_model_to_image(model_dir, model_name, model_revision):
         local_dir=model_dir,
         ignore_patterns=["*.pt", "*.bin"],  # Using safetensors
         revision=model_revision,
+        use_auth_token=os.environ["HF_TOKEN"]
     )
 
 
@@ -65,6 +67,7 @@ MINUTES = 60
 
 vllm_image = vllm_image.env({"HF_HUB_ENABLE_HF_TRANSFER": "1"}).run_function(
     download_model_to_image,
+    secrets=[modal.Secret.from_name("llama-huggingface-secret")],
     timeout=20 * MINUTES,
     kwargs={
         "model_dir": MODEL_DIR,
@@ -99,7 +102,6 @@ local_template_path = (
     Path(__file__).parent / "template_llama3.jinja"
 )  # many models have a custom chat template -- using the wrong one subtly degrades results. watch out for it!
 
-
 @app.function(
     image=vllm_image,
     gpu=modal.gpu.A10G(count=N_GPU),
@@ -118,23 +120,85 @@ def serve():
     from vllm.engine.arg_utils import AsyncEngineArgs
     from vllm.engine.async_llm_engine import AsyncLLMEngine
     from vllm.entrypoints.openai.serving_chat import OpenAIServingChat
-    from vllm.entrypoints.openai.serving_completion import (
-        OpenAIServingCompletion,
-    )
+    from vllm.entrypoints.openai.serving_completion import OpenAIServingCompletion
     from vllm.usage.usage_lib import UsageContext
 
-    app = api_server.app
+    class Args:
+        def __init__(self):
+            self.host = "0.0.0.0"
+            self.port = 8000
+            self.allow_credentials = True
+            self.allowed_origins = ["*"]
+            self.allowed_methods = ["*"]
+            self.allowed_headers = ["*"]
+            self.api_key = os.environ["DSBA_LLAMA3_KEY"]
+            self.served_model_name = [MODEL_DIR]
+            self.chat_template = "chat_template.jinja"
+            self.response_role = "assistant"
+            self.lora_modules = []
+            self.middleware = []
+            self.root_path = None
+            self.ssl_keyfile = None
+            self.ssl_certfile = None
+            self.uvicorn_log_level = "info"
+            self.disable_log_requests = False
+            self.max_log_len = 1000
 
-    # security: CORS middleware for external requests
-    app.add_middleware(
-        fastapi.middleware.cors.CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+    args = Args()
+
+    # Set up the engine
+    engine_args = AsyncEngineArgs(
+        model=MODEL_DIR,
+        tensor_parallel_size=N_GPU,
+        gpu_memory_utilization=0.90,
+        max_model_len=4096,
+        enforce_eager=False,
+    )
+    engine = AsyncLLMEngine.from_engine_args(
+        engine_args, usage_context=UsageContext.OPENAI_API_SERVER
     )
 
-    # security: auth middleware
+    # Build the FastAPI app
+    app = fastapi.FastAPI()
+
+    # Define global variables
+    global openai_serving_chat, openai_serving_completion
+
+    @app.on_event("startup")
+    async def startup_event():
+        global openai_serving_chat, openai_serving_completion
+        
+        # Get model config
+        model_config = await engine.get_model_config()
+
+        # Set up the serving objects
+        openai_serving_chat = OpenAIServingChat(
+            engine,
+            model_config,
+            served_model_names=[MODEL_DIR],
+            response_role="assistant",
+            lora_modules=[],
+            chat_template="chat_template.jinja",
+        )
+        openai_serving_completion = OpenAIServingCompletion(
+            engine,
+            model_config,
+            served_model_names=[MODEL_DIR],
+            lora_modules=[],
+        )
+
+    @app.post("/v1/chat/completions")
+    async def create_chat_completion(request: api_server.ChatCompletionRequest, raw_request: fastapi.Request):
+        generator = await openai_serving_chat.create_chat_completion(request, raw_request)
+        if isinstance(generator, api_server.ErrorResponse):
+            return fastapi.responses.JSONResponse(content=generator.model_dump(), status_code=generator.code)
+        if request.stream:
+            return fastapi.responses.StreamingResponse(content=generator, media_type="text/event-stream")
+        else:
+            assert isinstance(generator, api_server.ChatCompletionResponse)
+            return fastapi.responses.JSONResponse(content=generator.model_dump())
+
+    # Add your custom middleware
     @app.middleware("http")
     async def authentication(request: fastapi.Request, call_next):
         if not request.url.path.startswith("/v1"):
@@ -144,29 +208,6 @@ def serve():
                 content={"error": "Unauthorized"}, status_code=401
             )
         return await call_next(request)
-
-    engine_args = AsyncEngineArgs(
-        model=MODEL_DIR,
-        tensor_parallel_size=N_GPU,
-        gpu_memory_utilization=0.90,
-        max_model_len=4096,
-        enforce_eager=False,  # capture the graph for faster inference, but slower cold starts (30s > 20s)
-    )
-
-    engine = AsyncLLMEngine.from_engine_args(
-        engine_args, usage_context=UsageContext.OPENAI_API_SERVER
-    )
-
-    api_server.openai_serving_chat = OpenAIServingChat(
-        engine,
-        served_model_names=[MODEL_DIR],
-        response_role="assistant",
-        lora_modules=[],
-        chat_template="chat_template.jinja",
-    )
-    api_server.openai_serving_completion = OpenAIServingCompletion(
-        engine, served_model_names=[MODEL_DIR], lora_modules=[]
-    )
 
     return app
 
