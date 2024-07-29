@@ -27,9 +27,8 @@ import os
 vllm_image = modal.Image.debian_slim(python_version="3.10").pip_install(
     [
         "vllm==0.5.3.post1",  # LLM serving
-        "transformers==4.43.1", # transformers
         "huggingface_hub==0.24.2",  # download models from the Hugging Face Hub
-        "hf-transfer==0.1.6",  # download models faster
+        "hf-transfer==0.1.8",  # download models faster
     ]
 )
 
@@ -115,99 +114,98 @@ local_template_path = (
 )
 @modal.asgi_app()
 def serve():
+    import asyncio
+
     import fastapi
     import vllm.entrypoints.openai.api_server as api_server
     from vllm.engine.arg_utils import AsyncEngineArgs
     from vllm.engine.async_llm_engine import AsyncLLMEngine
     from vllm.entrypoints.openai.serving_chat import OpenAIServingChat
-    from vllm.entrypoints.openai.serving_completion import OpenAIServingCompletion
+    from vllm.entrypoints.openai.serving_completion import (
+        OpenAIServingCompletion,
+    )
+    from vllm.entrypoints.logger import RequestLogger
     from vllm.usage.usage_lib import UsageContext
 
-    class Args:
-        def __init__(self):
-            self.host = "0.0.0.0"
-            self.port = 8000
-            self.allow_credentials = True
-            self.allowed_origins = ["*"]
-            self.allowed_methods = ["*"]
-            self.allowed_headers = ["*"]
-            self.api_key = os.environ["DSBA_LLAMA3_KEY"]
-            self.served_model_name = [MODEL_DIR]
-            self.chat_template = "chat_template.jinja"
-            self.response_role = "assistant"
-            self.lora_modules = []
-            self.middleware = []
-            self.root_path = None
-            self.ssl_keyfile = None
-            self.ssl_certfile = None
-            self.uvicorn_log_level = "info"
-            self.disable_log_requests = False
-            self.max_log_len = 1000
+    # create a fastAPI app that uses vLLM's OpenAI-compatible router
+    app = fastapi.FastAPI(
+        title=f"OpenAI-compatible {MODEL_NAME} server",
+        description="Run an OpenAI-compatible LLM server with vLLM on modal.com",
+        version="0.0.1",
+        docs_url="/docs",
+    )
 
-    args = Args()
+    # security: CORS middleware for external requests
+    http_bearer = fastapi.security.HTTPBearer(
+        scheme_name="Bearer Token", description="See code for authentication details."
+    )
+    app.add_middleware(
+        fastapi.middleware.cors.CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
-    # Set up the engine
+    # security: inject dependency on authed routes
+    async def is_authenticated(api_key: str = fastapi.Security(http_bearer)):
+        if api_key.credentials != os.environ["DSBA_LLAMA3_KEY"]:
+            raise fastapi.HTTPException(
+                status_code=fastapi.status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid authentication credentials",
+            )
+        return {"username": "authenticated_user"}
+
+    router = fastapi.APIRouter(dependencies=[fastapi.Depends(is_authenticated)])
+
+    router.include_router(api_server.router)
+    app.include_router(router)
+
     engine_args = AsyncEngineArgs(
         model=MODEL_DIR,
         tensor_parallel_size=N_GPU,
         gpu_memory_utilization=0.90,
-        max_model_len=4096,
-        enforce_eager=False,
+        max_model_len=1024 + 128,
+        enforce_eager=True,
     )
+
     engine = AsyncLLMEngine.from_engine_args(
         engine_args, usage_context=UsageContext.OPENAI_API_SERVER
     )
 
-    # Build the FastAPI app
-    app = fastapi.FastAPI()
+    try:  # copied from vLLM -- https://github.com/vllm-project/vllm/blob/507ef787d85dec24490069ffceacbd6b161f4f72/vllm/entrypoints/openai/api_server.py#L235C1-L247C1
+        event_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        event_loop = None
 
-    # Define global variables
-    global openai_serving_chat, openai_serving_completion
+    if event_loop is not None and event_loop.is_running():
+        # If the current is instanced by Ray Serve,
+        # there is already a running event loop
+        model_config = event_loop.run_until_complete(engine.get_model_config())
+    else:
+        # When using single vLLM without engine_use_ray
+        model_config = asyncio.run(engine.get_model_config())
 
-    @app.on_event("startup")
-    async def startup_event():
-        global openai_serving_chat, openai_serving_completion
-        
-        # Get model config
-        model_config = await engine.get_model_config()
+    request_logger = RequestLogger(max_log_len=2048)
 
-        # Set up the serving objects
-        openai_serving_chat = OpenAIServingChat(
-            engine,
-            model_config,
-            served_model_names=[MODEL_DIR],
-            response_role="assistant",
-            lora_modules=[],
-            chat_template="chat_template.jinja",
-        )
-        openai_serving_completion = OpenAIServingCompletion(
-            engine,
-            model_config,
-            served_model_names=[MODEL_DIR],
-            lora_modules=[],
-        )
-
-    @app.post("/v1/chat/completions")
-    async def create_chat_completion(request: api_server.ChatCompletionRequest, raw_request: fastapi.Request):
-        generator = await openai_serving_chat.create_chat_completion(request, raw_request)
-        if isinstance(generator, api_server.ErrorResponse):
-            return fastapi.responses.JSONResponse(content=generator.model_dump(), status_code=generator.code)
-        if request.stream:
-            return fastapi.responses.StreamingResponse(content=generator, media_type="text/event-stream")
-        else:
-            assert isinstance(generator, api_server.ChatCompletionResponse)
-            return fastapi.responses.JSONResponse(content=generator.model_dump())
-
-    # Add your custom middleware
-    @app.middleware("http")
-    async def authentication(request: fastapi.Request, call_next):
-        if not request.url.path.startswith("/v1"):
-            return await call_next(request)
-        if request.headers.get("Authorization") != "Bearer " + os.environ["DSBA_LLAMA3_KEY"]:
-            return fastapi.responses.JSONResponse(
-                content={"error": "Unauthorized"}, status_code=401
-            )
-        return await call_next(request)
+    api_server.openai_serving_chat = OpenAIServingChat(
+        engine,
+        model_config=model_config,
+        served_model_names=[MODEL_DIR],
+        chat_template=None,
+        response_role="assistant",
+        lora_modules=[],
+        prompt_adapters=[],
+        request_logger=request_logger,
+    )
+    api_server.openai_serving_completion = OpenAIServingCompletion(
+        engine,
+        model_config=model_config,
+        served_model_names=[MODEL_DIR],
+        lora_modules=[],
+        prompt_adapters=[],
+        request_logger=request_logger,
+    )
 
     return app
 
