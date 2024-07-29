@@ -65,3 +65,26 @@ Together they dined, a messy entwine.
 # Run inference in Colab
 
 Alternatively, you may use [the repo's Jupyter notebook](/notebooks/dsba6010_openai_api_prompting_with_modal.ipynb), open in Colab, setting up the API key and `BASE_URL` via Colab, then run.
+
+# Run inference via `curl`
+
+```
+# make sure to replace your-workspace-name
+curl https://your-workspace-name--vllm-openai-compatible-serve.modal.run/v1/chat/completions \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer $DSBA_API_KEY" \
+    -d '{
+        "model": "/models/NousResearch/Meta-Llama-3.1-8B-Instruct",
+        "messages": [
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": "What is your training data?"}
+        ]
+    }' | jq
+```
+
+> [!WARNING]  
+> Make sure you have a `.env` file with your token such that:
+> 
+> ```
+> DSBA_LLAMA3_KEY=<secret-token>
+> ```
