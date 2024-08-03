@@ -37,7 +37,10 @@ modal deploy src/api.py
 
 This will then provide you a URL endpoint: <https://your-workspace-name--vllm-openai-compatible-serve.modal.run>
 
-You can view Swagger <https://your-workspace-name--vllm-openai-compatible-serve.modal.run/docs>
+![Example of a successful Modal deployment](docs/modal-deploy.png)
+
+You can view the Swagger API doc at <https://your-workspace-name--vllm-openai-compatible-serve.modal.run/docs>
+
 
 # Running inference
 
