@@ -25,8 +25,11 @@ You should receive a `Web authentication finished successfully!` message.
 
 You will need to set a Bearer token (as an OPEN AI API) to authenticate as a [Modal Secret](https://modal.com/docs/guide/secrets).
 
-You will need to name the key `DSBA_LLAMA3_KEY` with a secret value. If you're running on your own, you will need an `.env` file with `DBSA_LLAMA3_KEY=<your secret value>`. In Modal, name the key `dsba-llama3-key`. 
+Go to Modal→Your account→Dashboard→Secrets and select creating a Custom Secret. At step two, put `DSBA_LLAMA3_KEY` under `Key` and the OpenAI API key under `Value`. Click next. It will ask you to give your secret a name. Name your secret `dsba-llama3-key`.
 
+If you're running on your own, you will need an `.env` file with `DBSA_LLAMA3_KEY=<your secret value>`. 
+
+After supplying the secret in Modal, you should be able to run the following command with no error:
 
 ```bash
 modal deploy src/api.py
@@ -34,7 +37,10 @@ modal deploy src/api.py
 
 This will then provide you a URL endpoint: <https://your-workspace-name--vllm-openai-compatible-serve.modal.run>
 
-You can view Swagger <https://your-workspace-name--vllm-openai-compatible-serve.modal.run/docs>
+![Example of a successful Modal deployment](docs/modal-deploy.png)
+
+You can view the Swagger API doc at <https://your-workspace-name--vllm-openai-compatible-serve.modal.run/docs>
+
 
 # Running inference
 
