@@ -12,7 +12,8 @@ python -m pip install -r requirements.txt
 ```
 
 > [!TIP]
-> If you're using Windows CMD, the 2nd line will be `.\venv\Scripts\activate.bat`. Alternatively, Windows PowerShell it would be `.\venv\Scripts\activate.ps1`
+> If you're using Windows CMD, the 2nd line will be `.\venv\Scripts\activate.bat`. 
+> Alternatively, if you're using Windows PowerShell, it would be `.\venv\Scripts\activate.ps1`
 
 To setup Modal locally:
 
