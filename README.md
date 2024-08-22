@@ -2,6 +2,12 @@
 
 Make sure you have signed up for a [Modal account](https://modal.com/).
 
+Clone this repo like this or use [VSCode's command](https://code.visualstudio.com/docs/sourcecontrol/intro-to-git#_clone-a-repository-locally): 
+
+```bash
+git clone https://github.com/dsba6010-llm-applications/modal-llama-3-8b-serving.git
+```
+
 To run, I'm using Python 3.10 on a Mac.
 
 ```python
