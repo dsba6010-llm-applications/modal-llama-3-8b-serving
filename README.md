@@ -8,6 +8,8 @@ Clone this repo like this or use [VSCode's command](https://code.visualstudio.co
 git clone https://github.com/dsba6010-llm-applications/modal-llama-3-8b-serving.git
 ```
 
+Then `cd` into your new folder `modal-llama-3-8b-serving`.
+
 To run, I'm using Python 3.10 on a Mac.
 
 ```python
