@@ -26,7 +26,7 @@ import os
 
 vllm_image = modal.Image.debian_slim(python_version="3.10").pip_install(
     [
-        "vllm==0.5.3.post1",  # LLM serving
+        "vllm==0.6.3.post1",  # LLM serving
         "huggingface_hub==0.24.2",  # download models from the Hugging Face Hub
         "hf-transfer==0.1.8",  # download models faster
     ]
@@ -66,7 +66,7 @@ MINUTES = 60
 
 vllm_image = vllm_image.env({"HF_HUB_ENABLE_HF_TRANSFER": "1"}).run_function(
     download_model_to_image,
-    secrets=[modal.Secret.from_name("llama-huggingface-secret")],
+    secrets=[modal.Secret.from_name("huggingface")],
     timeout=20 * MINUTES,
     kwargs={
         "model_dir": MODEL_DIR,

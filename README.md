@@ -74,7 +74,7 @@ curl https://your-workspace-name--vllm-openai-compatible-serve.modal.run/v1/chat
     -H "Content-Type: application/json" \
     -H "Authorization: Bearer $DSBA_API_KEY" \
     -d '{
-        "model": "/models/NousResearch/Meta-Llama-3.1-8B-Instruct",
+        "model": "/models/meta-llama/Llama-3.2-3B-Instruct",
         "messages": [
             {"role": "system", "content": "You are a helpful assistant."},
             {"role": "user", "content": "What is your training data?"}
